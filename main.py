@@ -1,8 +1,9 @@
 import sys
+import signal
 from PyQt6.QtWidgets import (QApplication, QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget, QHeaderView, QHBoxLayout,
                              QPushButton, QLabel, QSizeGrip)
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, QTimer
 from PyQt6.QtGui import QColor, QFont
 class ProfessionalOverlay(QWidget):
     def __init__(self):
@@ -25,7 +26,7 @@ class ProfessionalOverlay(QWidget):
         # Title/Close Bar
         self.title_bar = QWidget()
         self.title_bar.setFixedHeight(30)
-        self.title_bar.setStyleSheet("background-color: #222; border: 1px solid #555; border-bottom: none;")
+        self.title_bar.setStyleSheet("background-color: #000; border: 1px solid #555; border-bottom: none;")
        
         title_layout = QHBoxLayout(self.title_bar)
         title_layout.setContentsMargins(10, 0, 5, 0)
@@ -51,7 +52,7 @@ class ProfessionalOverlay(QWidget):
         # Bottom-right grip enables manual resize for frameless windows.
         self.resize_bar = QWidget()
         self.resize_bar.setFixedHeight(14)
-        self.resize_bar.setStyleSheet("background-color: rgba(10, 10, 10, 220); border: 1px solid #555; border-top: none;")
+        self.resize_bar.setStyleSheet("background-color: rgba(0, 0, 0, 220); border: 1px solid #555; border-top: none;")
         resize_layout = QHBoxLayout(self.resize_bar)
         resize_layout.setContentsMargins(0, 0, 2, 2)
         resize_layout.addStretch()
@@ -66,14 +67,14 @@ class ProfessionalOverlay(QWidget):
         # Professional Dark Theme Styling
         self.table.setStyleSheet("""
             QTableWidget {
-                background-color: rgba(10, 10, 10, 220);
+                background-color: #000;
                 color: white;
                 gridline-color: #444;
                 border: 1px solid #555;
                 font-family: 'Segoe UI', Arial;
             }
             QHeaderView::section {
-                background-color: #333;
+                background-color: #000;
                 color: #ddd;
                 border: 1px solid #555;
                 font-weight: bold;
@@ -81,9 +82,10 @@ class ProfessionalOverlay(QWidget):
             }
         """)
 
-        headers = ["TEAM", "G1", "G2", "G3", "G4", "TOTAL"]
+        headers = ["TEAM", "Shuffled", "puzzle", "bio-scope", "cup taken", "TOTAL"]
         self.table.setHorizontalHeaderLabels(headers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSortIndicator(5, Qt.SortOrder.DescendingOrder)
         self.table.verticalHeader().setVisible(False)
         
         # IMPORTANT: Disable sorting during setup to prevent row-swapping bugs
@@ -120,40 +122,50 @@ class ProfessionalOverlay(QWidget):
 
         # Re-enable sorting after the table is populated
         self.table.setSortingEnabled(True)
+        self.table.sortItems(5, Qt.SortOrder.DescendingOrder)
         self.table.cellChanged.connect(self.update_scores)
         
     def update_scores(self, row, col):
         # Only trigger if one of the score columns (1-4) is changed
         if 1 <= col <= 4:
-            # 1. Temporarily disable sorting so rows don't jump while we work
-            self.table.setSortingEnabled(False)
-            self.table.blockSignals(True)
-           
-            try:
+            self.recalculate_and_sort_totals()
+
+    def recalculate_and_sort_totals(self):
+        # Recalculate all totals before sorting to keep team order stable.
+        self.table.setSortingEnabled(False)
+        self.table.blockSignals(True)
+
+        try:
+            for row in range(self.table.rowCount()):
                 total = 0
-                for c in range(1, 5):
-                    item = self.table.item(row, c)
-                    if item:
-                        text = item.text().strip()
-                        if text:
-                            try:
-                                total += int(text)
-                            except ValueError:
-                                item.setText("0") # Reset typos to 0
-                # 2. Update the Total column
+                for col in range(1, 5):
+                    item = self.table.item(row, col)
+                    if not item:
+                        continue
+
+                    text = item.text().strip()
+                    if not text:
+                        item.setText("0")
+                        text = "0"
+
+                    try:
+                        score = int(text)
+                    except ValueError:
+                        score = 0
+                        item.setText("0")
+
+                    total += score
+
                 total_item = self.table.item(row, 5)
                 if total_item:
-                    # Update both display and the data used for sorting
+                    # Use EditRole so Qt sorts numerically, not lexicographically.
                     total_item.setText(str(total))
                     total_item.setData(Qt.ItemDataRole.EditRole, total)
-               
-            finally:
-                # 3. Re-enable signals and sorting
-                self.table.blockSignals(False)
-                self.table.setSortingEnabled(True)
-               
-                # 4. Perform the sort now that the data is stable
-                self.table.sortItems(5, Qt.SortOrder.DescendingOrder)
+        finally:
+            self.table.blockSignals(False)
+            self.table.setSortingEnabled(True)
+
+        self.table.sortItems(5, Qt.SortOrder.DescendingOrder)
     # --- Mouse Events (Moving & Resizing) ---
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -173,6 +185,13 @@ class ProfessionalOverlay(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     overlay = ProfessionalOverlay()
+
+    # Keep Python signal handling alive while Qt event loop is running.
+    # This allows Ctrl+C from a terminal to terminate the app cleanly.
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    heartbeat = QTimer(app)
+    heartbeat.timeout.connect(lambda: None)
+    heartbeat.start(100)
    
     # Optional: enable native resizing on frameless window for Windows
     # If on Windows, you can drag the edges to resize
