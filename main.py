@@ -1,42 +1,38 @@
 import sys
-from PyQt6.QtWidgets import (QApplication, QTableWidget, QTableWidgetItem, 
-                             QVBoxLayout, QWidget, QHeaderView, QHBoxLayout, 
+from PyQt6.QtWidgets import (QApplication, QTableWidget, QTableWidgetItem,
+                             QVBoxLayout, QWidget, QHeaderView, QHBoxLayout,
                              QPushButton, QLabel, QSizeGrip)
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QColor, QFont
-
 class ProfessionalOverlay(QWidget):
     def __init__(self):
         super().__init__()
-
         # 1. Window Configuration
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |       # No system title bar
-            Qt.WindowType.WindowStaysOnTopHint |      # Always on top
-            Qt.WindowType.Tool                        # No taskbar icon
+            Qt.WindowType.FramelessWindowHint | # No system title bar
+            Qt.WindowType.WindowStaysOnTopHint | # Always on top
+            Qt.WindowType.Tool # No taskbar icon
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
+       
         # Initial size
         self.resize(700, 220)
         self.setMinimumSize(500, 180)
-
         # 2. UI Structure
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 0, 0, 0) # Remove outer padding
         self.main_layout.setSpacing(0)
-
         # Title/Close Bar
         self.title_bar = QWidget()
         self.title_bar.setFixedHeight(30)
         self.title_bar.setStyleSheet("background-color: #222; border: 1px solid #555; border-bottom: none;")
-        
+       
         title_layout = QHBoxLayout(self.title_bar)
         title_layout.setContentsMargins(10, 0, 5, 0)
-        
+       
         self.title_label = QLabel("SCOREBOARD (DRAG TO MOVE)")
         self.title_label.setStyleSheet("color: #888; font-size: 10px; font-weight: bold;")
-        
+       
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.setStyleSheet("""
@@ -44,18 +40,14 @@ class ProfessionalOverlay(QWidget):
             QPushButton:hover { color: white; background: #cc0000; }
         """)
         self.close_btn.clicked.connect(self.close)
-
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
         title_layout.addWidget(self.close_btn)
-
         # Table Setup
         self.table = QTableWidget(4, 6)
         self.init_table()
-
         self.main_layout.addWidget(self.title_bar)
         self.main_layout.addWidget(self.table)
-
         # Bottom-right grip enables manual resize for frameless windows.
         self.resize_bar = QWidget()
         self.resize_bar.setFixedHeight(14)
@@ -67,14 +59,11 @@ class ProfessionalOverlay(QWidget):
         self.size_grip.setFixedSize(12, 12)
         self.size_grip.setStyleSheet("background: transparent;")
         resize_layout.addWidget(self.size_grip)
-
         self.main_layout.addWidget(self.resize_bar)
         self.setLayout(self.main_layout)
-
         self.drag_pos = QPoint()
-
     def init_table(self):
-        # Sharp Grey Border & Flat Design
+        # Professional Dark Theme Styling
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: rgba(10, 10, 10, 220);
@@ -96,7 +85,9 @@ class ProfessionalOverlay(QWidget):
         self.table.setHorizontalHeaderLabels(headers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
-        self.table.setSortingEnabled(True)
+        
+        # IMPORTANT: Disable sorting during setup to prevent row-swapping bugs
+        self.table.setSortingEnabled(False) 
 
         teams = [
             ("Team A", "#FF4D4D"), ("Team B", "#4D94FF"),
@@ -104,71 +95,88 @@ class ProfessionalOverlay(QWidget):
         ]
 
         for row, (name, color) in enumerate(teams):
-            # Name
+            # 1. Team Name (Editable)
             name_item = QTableWidgetItem(name)
             name_item.setForeground(QColor(color))
-            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            # Ensure name is editable if you want to change "Team A" to a custom name
+            name_item.setFlags(name_item.flags() | Qt.ItemFlag.ItemIsEditable) 
             self.table.setItem(row, 0, name_item)
 
-            # Scores
+            # 2. Game Scores (G1 - G4)
             for col in range(1, 5):
-                score_item = QTableWidgetItem("0")
+                score_item = QTableWidgetItem("0") # Set initial value to 0
                 score_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                # Explicitly allow editing
+                score_item.setFlags(score_item.flags() | Qt.ItemFlag.ItemIsEditable) 
                 self.table.setItem(row, col, score_item)
 
-            # Total
-            total_item = QTableWidgetItem()
-            total_item.setData(Qt.ItemDataRole.EditRole, 0) # Set as int for sorting
+            # 3. Total Column (Keep non-editable as it's a calculation)
+            total_item = QTableWidgetItem("0")
+            total_item.setData(Qt.ItemDataRole.EditRole, 0) 
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             total_item.setForeground(QColor(color))
             self.table.setItem(row, 5, total_item)
 
+        # Re-enable sorting after the table is populated
+        self.table.setSortingEnabled(True)
         self.table.cellChanged.connect(self.update_scores)
-
+        
     def update_scores(self, row, col):
+        # Only trigger if one of the score columns (1-4) is changed
         if 1 <= col <= 4:
+            # 1. Temporarily disable sorting so rows don't jump while we work
+            self.table.setSortingEnabled(False)
             self.table.blockSignals(True)
+           
             try:
                 total = 0
                 for c in range(1, 5):
-                    text = self.table.item(row, c).text()
-                    total += int(text) if text.isdigit() else 0
-                
-                # Update total as integer so sorting is numeric
-                self.table.item(row, 5).setData(Qt.ItemDataRole.EditRole, total)
-                
-                # Sort descending by the Total column
+                    item = self.table.item(row, c)
+                    if item:
+                        text = item.text().strip()
+                        if text:
+                            try:
+                                total += int(text)
+                            except ValueError:
+                                item.setText("0") # Reset typos to 0
+                # 2. Update the Total column
+                total_item = self.table.item(row, 5)
+                if total_item:
+                    # Update both display and the data used for sorting
+                    total_item.setText(str(total))
+                    total_item.setData(Qt.ItemDataRole.EditRole, total)
+               
+            finally:
+                # 3. Re-enable signals and sorting
+                self.table.blockSignals(False)
+                self.table.setSortingEnabled(True)
+               
+                # 4. Perform the sort now that the data is stable
                 self.table.sortItems(5, Qt.SortOrder.DescendingOrder)
-            except: pass
-            self.table.blockSignals(False)
-
     # --- Mouse Events (Moving & Resizing) ---
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
-
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:
             # Move the window
             self.move(event.globalPosition().toPoint() - self.drag_pos)
             event.accept()
-
-    # Right-bottom corner resize handle is handled natively if we enable it, 
+    # Right-bottom corner resize handle is handled natively if we enable it,
     # but for frameless windows, we can just let the table expand.
     # To allow resizing, we can use the WindowFlags or custom logic.
     # Added native resize support:
     def resizeEvent(self, event):
         super().resizeEvent(event)
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     overlay = ProfessionalOverlay()
-    
+   
     # Optional: enable native resizing on frameless window for Windows
     # If on Windows, you can drag the edges to resize
     overlay.setWindowFlags(overlay.windowFlags() | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowSystemMenuHint)
-    
+   
     overlay.show()
     sys.exit(app.exec())
